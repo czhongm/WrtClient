@@ -31,11 +31,10 @@ SyncClient* g_syncclient = NULL;
 
 SyncClient::SyncClient(const char* remoteip, int port, const char* interface) :
 		m_remoteip(remoteip), m_remoteport(port) {
-	UDT::startup();
 	m_bConnected = false;
 	m_bTerminated = false;
 	m_mutex = PTHREAD_MUTEX_INITIALIZER;
-	m_client = UDT::INVALID_SOCK;
+	m_socket = -1;
 	get_iface_mac(interface, m_mac);
 }
 
@@ -49,8 +48,14 @@ SyncClient::~SyncClient() {
 	}
 	pthread_mutex_unlock(&m_mutex);
 
-	UDT::close(m_client);
-	UDT::cleanup();
+	closeSocket();
+}
+
+void SyncClient::closeSocket(){
+	if(m_socket>=0){
+		close(m_socket);
+		m_socket = -1;
+	}
 }
 
 /**
@@ -90,116 +95,103 @@ bool SyncClient::get_iface_mac(const char *ifname, unsigned char* result) {
 }
 
 bool SyncClient::connect() {
-	UDT::close(m_client);
-
-	struct addrinfo hints, *local;
-
-	memset(&hints, 0, sizeof(struct addrinfo));
-
-	hints.ai_flags = AI_PASSIVE;
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	//hints.ai_socktype = SOCK_DGRAM;
-
-	if (0 != getaddrinfo(NULL, "9431", &hints, &local)) {
-		EventLog::trace(TRACE_ERROR, "incorrect network address.\n");
+	struct sockaddr_in local_address;
+	int sockopt = 1;
+	if ((m_socket = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+		EventLog::trace(TRACE_ERROR, "Unable to create socket [%s][%d]\n",
+				strerror(errno), m_socket);
 		return false;
 	}
 
-	m_client = UDT::socket(local->ai_family, local->ai_socktype, local->ai_protocol);
-	freeaddrinfo(local);
+	setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, (char *) &sockopt,
+			sizeof(sockopt));
 
-	//修改UDT参数
+	memset(&local_address, 0, sizeof(local_address));
+	local_address.sin_family = AF_INET;
+	local_address.sin_port = htons(m_remoteport);
+	local_address.sin_addr.s_addr = htonl(INADDR_ANY);
 
-	int recvtimeout = 200;
-	int sendtimeout = 200;
-	int sendbuf = 1024000;
-	int recvbuf = 1024000;
-	int udpsendbuf = 102400;
-	int udprecvbuf = 102400;
-
-	UDT::setsockopt(m_client, 0, UDT_SNDTIMEO, &sendtimeout, sizeof(sendtimeout));
-	UDT::setsockopt(m_client, 0, UDT_RCVTIMEO, &recvtimeout, sizeof(recvtimeout));
-	UDT::setsockopt(m_client, 0, UDT_SNDBUF, &sendbuf, sizeof(sendbuf));
-	UDT::setsockopt(m_client, 0, UDT_RCVBUF, &recvbuf, sizeof(recvbuf));
-	UDT::setsockopt(m_client, 0, UDP_SNDBUF, &udpsendbuf, sizeof(udpsendbuf));
-	UDT::setsockopt(m_client, 0, UDP_RCVBUF, &udprecvbuf, sizeof(udprecvbuf));
-
-	char strPort[32];
-	struct addrinfo *peer;
-
-	memset(&hints, 0, sizeof(struct addrinfo));
-
-	hints.ai_flags = AI_PASSIVE;
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	//hints.ai_socktype = SOCK_DGRAM;
-
-	sprintf(strPort, "%d", m_remoteport);
-	if (0 != getaddrinfo(m_remoteip.c_str(), strPort, &hints, &peer)) {
-		EventLog::trace(TRACE_ERROR, "%s incorrect server/peer address. ", m_remoteip.c_str());
+	if (bind(m_socket, (struct sockaddr*) &local_address, sizeof(local_address))
+			== -1) {
+		EventLog::trace(TRACE_ERROR, "Bind error [%s]\n", strerror(errno));
+		closeSocket();
 		return false;
 	}
-	// connect to the server, implict bind
-	if (UDT::ERROR == UDT::connect(m_client, peer->ai_addr, peer->ai_addrlen)) {
-		EventLog::trace(TRACE_ERROR, "can't connect %s: %s", m_remoteip.c_str(), UDT::getlasterror().getErrorMessage());
-		return false;
-	}
-	freeaddrinfo(peer);
-	m_bConnected = true;
+
 	return true;
 }
 
 void SyncClient::start() {
-	do {
-		if (connect()) {
-			bool bNeedRecon = false;
-			while (!(m_bTerminated || bNeedRecon)) {
-				pthread_mutex_lock(&m_mutex);
-				while (!m_lstPackage.empty()) {
-					struct _queue_item* pItem = m_lstPackage.front();
-					int ss;
+	while (!m_bTerminated) {
+		procSend();
+		procRecv();
+		usleep(300 * 1000);
+	}
+}
 
-					if (UDT::ERROR == (ss = UDT::send(m_client, (char*) pItem->data, pItem->length, 0))) {
-						EventLog::trace(TRACE_ERROR, "send:%s", UDT::getlasterror().getErrorMessage());
-						bNeedRecon = true;
-						break;
-					} else {
-						EventLog::trace(TRACE_INFO, "Send type=%d pack success.", ((struct _sync_pack_header*) (pItem->data))->type);
-						usleep(100 * 1000);
-					}
-					free(pItem->data);
-					delete (pItem);
-					m_lstPackage.pop();
-				}
-				pthread_mutex_unlock(&m_mutex);
-
-				if (!bNeedRecon) {
-					int rs;
-					int rcv_size;
-					int var_size = sizeof(int);
-					unsigned char data[1024];
-
-					UDT::getsockopt(m_client, 0, UDT_RCVDATA, &rcv_size, &var_size);
-					if (rcv_size > 0) {
-						if (UDT::ERROR == (rs = UDT::recv(m_client, (char*) data, sizeof(data), 0))) {
-							EventLog::trace(TRACE_ERROR, "recv:%s", UDT::getlasterror().getErrorMessage());
-							break;
-						} else {
-							AppendRecBuf(data, rs);
-							procRecv();
-						}
-					}
-					usleep(100 * 1000);
-				}
-			}
-		} else {
-			usleep(300 * 1000);
+void SyncClient::procSend(){
+	if (m_socket < 0) {
+		if (connect() == false) {
+			usleep(1000*1000);
+			return;
 		}
-	} while (!m_bTerminated);
+	}
+
+	struct sockaddr_in remote_addr;
+	memset(&remote_addr, 0, sizeof(remote_addr));
+	remote_addr.sin_family = AF_INET;
+	remote_addr.sin_port = htons(m_remoteport);
+	remote_addr.sin_addr.s_addr = inet_addr(m_remoteip.c_str());
+
+	pthread_mutex_lock(&m_mutex);
+	while (!m_lstPackage.empty()) {
+		struct _queue_item* pItem = m_lstPackage.front();
+		int ss;
+
+		if (-1 == (ss = sendto(m_socket,  pItem->data, pItem->length, 0,(struct sockaddr *) &remote_addr,sizeof(remote_addr)))) {
+			EventLog::trace(TRACE_ERROR, "sendto:%s", strerror(errno));
+			closeSocket();
+			break;
+		} else {
+			EventLog::trace(TRACE_INFO, "Send type=%d pack success.", ((struct _sync_pack_header*) (pItem->data))->type);
+		}
+		free(pItem->data);
+		delete (pItem);
+		m_lstPackage.pop();
+	}
+	pthread_mutex_unlock(&m_mutex);
 }
 
 void SyncClient::procRecv() {
+	if (m_socket < 0) {
+		if (connect() == false) {
+			usleep(1000*1000);
+			return;
+		}
+	}
+	int n;
+	struct sockaddr_in remote_addr;
+	size_t nSize = sizeof(remote_addr);
+	fd_set s;
+	FD_ZERO(&s);
+	FD_SET(m_socket, &s);
+	struct timeval timeout;
+	timeout.tv_sec = 3;
+	timeout.tv_usec = 0;
+	int retval = select(m_socket + 1, &s, &s, &s, &timeout);
+	if (retval == -1) {
+		return;
+	}
+	unsigned char buf[1024];
+	do{
+		n = recvfrom(m_socket, buf, sizeof(buf), MSG_DONTWAIT,
+				(struct sockaddr *) &remote_addr, &nSize);
+		if(n==-1){
+			return;
+		}
+		AppendRecBuf(buf,n);
+	}while(n>0);
+
 	do {
 		//找寻头
 		for(unsigned int i=0;i<m_nBufLen;i++){

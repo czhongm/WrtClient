@@ -13,11 +13,9 @@
 #include <pthread.h>
 using namespace std;
 
-#include "udt/udt.h"
-
 #include "SyncPackDef.h"
 
-#define REC_BUF_MAX 4096
+#define REC_BUF_MAX			4096
 
 namespace wrtclient {
 
@@ -41,6 +39,7 @@ protected:
 	bool connect();
 	bool get_iface_mac(const char *ifname, unsigned char* result);
 	void procRecv();
+	void procSend();
 	void constructHeader( _sync_pack_header* header,unsigned char type,unsigned short length);
 	void addPackage(unsigned char* data,int len);
 
@@ -49,8 +48,10 @@ protected:
 	void AppendRecBuf(unsigned char* szBuf, int nLen);
 	void DecRecBuf(int nLen);
 
+	void closeSocket();
+
 protected:
-	UDTSOCKET m_client;
+	int m_socket;
 	string m_remoteip;
 	int m_remoteport;
 	unsigned char m_mac[6];
