@@ -51,8 +51,8 @@ SyncClient::~SyncClient() {
 	closeSocket();
 }
 
-void SyncClient::closeSocket(){
-	if(m_socket>=0){
+void SyncClient::closeSocket() {
+	if (m_socket >= 0) {
 		close(m_socket);
 		m_socket = -1;
 	}
@@ -98,21 +98,18 @@ bool SyncClient::connect() {
 	struct sockaddr_in local_address;
 	int sockopt = 1;
 	if ((m_socket = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-		EventLog::trace(TRACE_ERROR, "Unable to create socket [%s][%d]\n",
-				strerror(errno), m_socket);
+		EventLog::trace(TRACE_ERROR, "Unable to create socket [%s][%d]\n", strerror(errno), m_socket);
 		return false;
 	}
 
-	setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, (char *) &sockopt,
-			sizeof(sockopt));
+	setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, (char *) &sockopt, sizeof(sockopt));
 
 	memset(&local_address, 0, sizeof(local_address));
 	local_address.sin_family = AF_INET;
 	local_address.sin_port = htons(m_remoteport);
 	local_address.sin_addr.s_addr = htonl(INADDR_ANY);
 
-	if (bind(m_socket, (struct sockaddr*) &local_address, sizeof(local_address))
-			== -1) {
+	if (bind(m_socket, (struct sockaddr*) &local_address, sizeof(local_address)) == -1) {
 		EventLog::trace(TRACE_ERROR, "Bind error [%s]\n", strerror(errno));
 		closeSocket();
 		return false;
@@ -129,10 +126,10 @@ void SyncClient::start() {
 	}
 }
 
-void SyncClient::procSend(){
+void SyncClient::procSend() {
 	if (m_socket < 0) {
 		if (connect() == false) {
-			usleep(1000*1000);
+			usleep(1000 * 1000);
 			return;
 		}
 	}
@@ -148,7 +145,7 @@ void SyncClient::procSend(){
 		struct _queue_item* pItem = m_lstPackage.front();
 		int ss;
 
-		if (-1 == (ss = sendto(m_socket,  pItem->data, pItem->length, 0,(struct sockaddr *) &remote_addr,sizeof(remote_addr)))) {
+		if (-1 == (ss = sendto(m_socket, pItem->data, pItem->length, 0, (struct sockaddr *) &remote_addr, sizeof(remote_addr)))) {
 			EventLog::trace(TRACE_ERROR, "sendto:%s", strerror(errno));
 			closeSocket();
 			break;
@@ -165,7 +162,7 @@ void SyncClient::procSend(){
 void SyncClient::procRecv() {
 	if (m_socket < 0) {
 		if (connect() == false) {
-			usleep(1000*1000);
+			usleep(1000 * 1000);
 			return;
 		}
 	}
@@ -183,47 +180,31 @@ void SyncClient::procRecv() {
 		return;
 	}
 	unsigned char buf[1024];
-	do{
-		n = recvfrom(m_socket, buf, sizeof(buf), MSG_DONTWAIT,
-				(struct sockaddr *) &remote_addr, &nSize);
-		if(n==-1){
-			return;
+	n = recvfrom(m_socket, buf, sizeof(buf), MSG_DONTWAIT, (struct sockaddr *) &remote_addr, &nSize);
+	if (n == -1) {
+		return;
+	}
+	if (n < sizeof(struct _sync_pack_header)) {
+		EventLog::trace(TRACE_DEBUG, "Not enougth bytes!");
+		return;
+	}
+	struct _sync_pack_header* header = (struct _sync_pack_header*) buf;
+	unsigned int packlen = header->length + sizeof(struct _sync_pack_header);
+	if (packlen > n) {
+		EventLog::trace(TRACE_DEBUG, "Not enougth bytes,wait next loop packlen=%d,buflen=%d", packlen, n);
+		return;
+	}
+	if (memcmp(m_mac, header->mac, sizeof(m_mac)) != 0) {
+		EventLog::trace(TRACE_DEBUG, "DROP package because MAC");
+	} else {
+		switch (header->type) {
+		case SYNCPACK_TYPE_AUTH_RESP:
+			procAuthResp(buf,n);
+			break;
+		case SYNCPACK_TYPE_DHCP_RESP:
+			break;
 		}
-		AppendRecBuf(buf,n);
-	}while(n>0);
-
-	do {
-		//找寻头
-		for(unsigned int i=0;i<m_nBufLen;i++){
-			if(m_RecBuf[i]!=SYNCPACK_HEADTAG){
-				EventLog::trace(TRACE_DEBUG,"Drop %d bytes",i);
-				DecRecBuf(i);
-				break;
-			}
-		}
-		if(m_nBufLen<sizeof(struct _sync_pack_header)){
-			EventLog::trace(TRACE_DEBUG, "Not enougth bytes,wait next loop");
-			return;
-		}
-		struct _sync_pack_header* header = (struct _sync_pack_header*) m_RecBuf;
-		unsigned int packlen = header->length + sizeof(struct _sync_pack_header);
-		if ( packlen > m_nBufLen) {
-			EventLog::trace(TRACE_DEBUG, "Not enougth bytes,wait next loop packlen=%d,buflen=%d",packlen,m_nBufLen);
-			return;
-		}
-		if (memcmp(m_mac, header->mac, sizeof(m_mac)) != 0) {
-			EventLog::trace(TRACE_DEBUG, "DROP package because MAC");
-		}else{
-			switch (header->type) {
-			case SYNCPACK_TYPE_AUTH_RESP:
-				procAuthResp();
-				break;
-			case SYNCPACK_TYPE_DHCP_RESP:
-				break;
-			}
-		}
-		DecRecBuf(packlen);
-	} while (true);
+	}
 }
 
 void SyncClient::stop() {
@@ -249,9 +230,10 @@ void SyncClient::addPackage(unsigned char* data, int len) {
 	pthread_mutex_unlock(&m_mutex);
 }
 
-void SyncClient::authClient(int gw_index, const char* szMac) {
+void SyncClient::authClient(int gw_index, const char* szMac,const char* szIp) {
 	EventLog::trace(TRACE_DEBUG, "authClient gw_index=%d, mac=%s", gw_index, szMac);
 	unsigned int mac[6];
+	int ip[4];
 	int datalen = sizeof(struct _sync_pack_header) + sizeof(struct _sync_pack_data_auth);
 	unsigned char* data = (unsigned char*) malloc(datalen);
 	memset(data, 0, datalen);
@@ -262,6 +244,10 @@ void SyncClient::authClient(int gw_index, const char* szMac) {
 	sscanf(szMac, "%x:%x:%x:%x:%x:%x", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
 	for (int i = 0; i < 6; i++) {
 		authdata->mac[i] = mac[i];
+	}
+	sscanf(szIp,"%d.%d.%d.%d",ip[0],ip[1],ip[2],ip[3]);
+	for (int i = 0; i < 4; i++) {
+		authdata->ip[i] = ip[i] & 0xFF;
 	}
 	addPackage(data, datalen);
 }
@@ -309,51 +295,23 @@ void SyncClient::postApp(int gw_index, const char* appid, const char* szMac) {
 	addPackage(data, datalen);
 }
 
-void SyncClient::procAuthResp() {
-	struct _sync_pack_data_auth_resp* resp = (struct _sync_pack_data_auth_resp*) (m_RecBuf + sizeof(struct _sync_pack_header));
-	EventLog::trace(TRACE_DEBUG, "procAuthResp");
+void SyncClient::procAuthResp(unsigned char* data,int len) {
+	char szIp[32],szMac[32];
+	struct _sync_pack_data_auth_resp* resp = (struct _sync_pack_data_auth_resp*) (data + sizeof(struct _sync_pack_header));
+	sprintf(szIp,"%d.%d.%d.%d",resp->ip[0],resp->ip[1],resp->ip[2],resp->ip[3]);
+	sprintf(szMac,"%02x:%02x:%02x:%02x:%02x:%02x",resp->mac[0],resp->mac[1],resp->mac[2],resp->mac[3],resp->mac[4],resp->mac[5]);
+	EventLog::trace(TRACE_DEBUG, "procAuthResp result=%d",resp->result);
 	if (resp->gw_index < g_lstWifidog.size()) {
 		Wifidog* pWifidog = g_lstWifidog[resp->gw_index];
-		Client* pClient = pWifidog->findClientByMac(resp->mac);
+		Client* pClient = pWifidog->findClientByMac(szMac);
 		if (pClient) {
 			EventLog::trace(TRACE_DEBUG, "procAuthResp Client Ip=%s, mac=%s", pClient->m_ip.c_str(), pClient->m_mac.c_str());
 			pClient->setState(resp->result);
 			pWifidog->allowClient(pClient);
+		}else{
+			pClient = pWifidog->appendClient(szIp,szMac,resp->result);
+			pWifidog->allowClient(pClient);
 		}
-	}
-}
-
-/**
- * 添加数据到接收缓存
- * @param szBuf 要添加的数据
- * @param nLen 要添加的长度
- */
-void SyncClient::AppendRecBuf(unsigned char *szBuf, int nLen) {
-	if (nLen <= 0)
-		return;
-	if (nLen > REC_BUF_MAX) {
-		memcpy(m_RecBuf, szBuf + nLen - REC_BUF_MAX, REC_BUF_MAX);
-		m_nBufLen = REC_BUF_MAX;
-		return;
-	} else if (nLen + m_nBufLen > REC_BUF_MAX) {
-		DecRecBuf(nLen + m_nBufLen - REC_BUF_MAX);
-	}
-	memcpy(m_RecBuf + m_nBufLen, szBuf, nLen);
-	m_nBufLen += nLen;
-}
-
-/**
- * 删除接收缓冲区的数据
- * @param nLen 删除的长度
- */
-void SyncClient::DecRecBuf(int nLen) {
-	if (nLen <= 0)
-		return;
-	if (nLen >= REC_BUF_MAX || nLen >= m_nBufLen) {
-		m_nBufLen = 0;
-	} else {
-		memcpy(m_RecBuf, m_RecBuf + nLen, m_nBufLen - nLen);
-		m_nBufLen -= nLen;
 	}
 }
 

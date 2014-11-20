@@ -32,7 +32,7 @@ public:
 	void start();
 	void stop();
 
-	void authClient(int gw_index,const  char* szMac);
+	void authClient(int gw_index,const  char* szMac,const char* szIp);
 	void syncDhcp(unsigned char action,const char* szMac,const char* szIp,const char* szHost);
 	void postApp(int gw_index,const char* appid,const char* szMac);
 protected:
@@ -43,10 +43,7 @@ protected:
 	void constructHeader( _sync_pack_header* header,unsigned char type,unsigned short length);
 	void addPackage(unsigned char* data,int len);
 
-	void procAuthResp();
-
-	void AppendRecBuf(unsigned char* szBuf, int nLen);
-	void DecRecBuf(int nLen);
+	void procAuthResp(unsigned char* data,int len);
 
 	void closeSocket();
 
@@ -61,9 +58,6 @@ protected:
 
 	queue<struct _queue_item*>	m_lstPackage;
 	pthread_mutex_t	m_mutex;
-
-	unsigned int				m_nBufLen;					//缓冲区长度
-	unsigned char m_RecBuf[REC_BUF_MAX]; //接收缓冲区
 
 };
 

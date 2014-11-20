@@ -149,7 +149,7 @@ void * DhcpMon::thread_handler(void *arg){
 		sscanf(request,"%s %s %s %s",act,mac,ip,hostname);
 		g_syncclient->syncDhcp(action,mac,ip,hostname);
 		for(unsigned int i=0;i<g_lstWifidog.size();i++){
-			g_syncclient->authClient(i,mac);
+			g_syncclient->authClient(i,mac,ip);
 		}
 	}
 

@@ -32,10 +32,12 @@ struct _sync_pack_header{
 struct _sync_pack_data_auth{
 	unsigned char gw_index;//待认证接口编号
 	unsigned char mac[6];//待认证主机MAC地址
+	unsigned char ip[4];//ip地址
 };
 struct _sync_pack_data_auth_resp{
 	unsigned char gw_index;//待认证接口编号
 	unsigned char mac[6];//待认证主机MAC地址
+	unsigned char ip[4];//ip地址
 	unsigned char result; //认证结果
 };
 

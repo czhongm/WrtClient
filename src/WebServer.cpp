@@ -102,7 +102,8 @@ void WebServer::start() {
 
 void WebServer::stop() {
 	m_bTerminated = true;
-	event_base_loopbreak(m_evbase);
+	event_base_loopexit(m_evbase,NULL);
+
 }
 
 void WebServer::send_document_cb(struct evhttp_request *req, void *arg) {
@@ -374,9 +375,9 @@ void WebServer::do_app(struct evhttp_request* req) {
 	ev_uint16_t peer_port;
 	char szAppId[32];
 	EventLog::trace(TRACE_DEBUG, "Start do_app....");
-
 	struct evkeyvalq *headers;
 	struct evkeyval *header;
+	memset(szAppId,0,sizeof(szAppId));
 	headers = evhttp_request_get_input_headers(req);
 	for (header = headers->tqh_first; header;
 	    header = header->next.tqe_next) {

@@ -33,6 +33,7 @@ Wifidog::Wifidog(config_setting_t *config) {
 	m_mutex_global = PTHREAD_MUTEX_INITIALIZER;
 	m_mutex_valid = PTHREAD_MUTEX_INITIALIZER;
 	m_mutex_trustmac = PTHREAD_MUTEX_INITIALIZER;
+	m_mutex_clients = PTHREAD_MUTEX_INITIALIZER;
 	m_bTerminated = false;
 	m_pIptables = NULL;
 	m_pWebServer = NULL;
@@ -55,12 +56,16 @@ bool Wifidog::init() {
 }
 
 Client* Wifidog::findClientByIp(string ip) {
+	Client* pClient = NULL;
+	pthread_mutex_lock(&m_mutex_clients);
 	for (vector<Client*>::iterator p = m_clients.begin(); p != m_clients.end(); ++p) {
 		if ((*p)->m_ip == ip) {
-			return (*p);
+			pClient = *p;
+			break;
 		}
 	}
-	return NULL;
+	pthread_mutex_unlock(&m_mutex_clients);
+	return pClient;
 }
 
 void Wifidog::testClient(Client* pClient) {
@@ -245,20 +250,18 @@ void Wifidog::stop(){
 	EventLog::trace(TRACE_DEBUG,"stop Wifidog finished...");
 }
 
-Client* Wifidog::findClientByMac(unsigned char* mac){
-	char szMac[32];
-	sprintf(szMac,"%02x:%02x:%02x:%02x:%02x:%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-	return findClientByMac(szMac);
-}
-
 Client* Wifidog::findClientByMac(string mac){
 	EventLog::trace(TRACE_DEBUG,"findClientByMac mac=%s",mac.c_str());
+	Client* pClient = NULL;
+	pthread_mutex_lock(&m_mutex_clients);
 	for (vector<Client*>::iterator p = m_clients.begin(); p != m_clients.end(); ++p) {
 		if ((*p)->m_mac == mac) {
-			return (*p);
+			pClient = (*p);
+			break;
 		}
 	}
-	return NULL;
+	pthread_mutex_unlock(&m_mutex_clients);
+	return pClient;
 }
 
 void Wifidog::allowClient(Client* pClient){
@@ -266,6 +269,14 @@ void Wifidog::allowClient(Client* pClient){
 	if(m_pIptables){
 		m_pIptables->allowClient(pClient);
 	}
+}
+
+Client* Wifidog::appendClient(const char* szIp,const char* szMac,int state){
+	Client* pClient = new Client(szIp, szMac, state);
+	pthread_mutex_lock(&m_mutex_clients);
+	m_clients.push_back(pClient);
+	pthread_mutex_unlock(&m_mutex_clients);
+	return pClient;
 }
 
 } /* namespace wrtclient */

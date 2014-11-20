@@ -38,7 +38,7 @@ public:
 
 	Client* findClientByIp(string ip);
 	Client* findClientByMac(string mac);
-	Client* findClientByMac(unsigned char* mac);
+	Client* appendClient(const char* szIp,const char* szMac,int state);
 
 protected:
 	void loadConfig(config_setting_t *config);
@@ -65,7 +65,7 @@ protected:
 	vector<string> m_globalhostlist;
 
 	vector<Client*>	m_clients;
-	pthread_mutex_t	m_mutex_global,m_mutex_valid,m_mutex_trustmac;
+	pthread_mutex_t	m_mutex_global,m_mutex_valid,m_mutex_trustmac,m_mutex_clients;
 	pthread_t m_webthread;
 
 	bool	m_bTerminated;
