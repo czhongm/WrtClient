@@ -53,6 +53,7 @@ WebServer::WebServer(Wifidog* pParent, int port, const char* docroot) {
 	m_evbase = NULL;
 	m_evhttp = NULL;
 	m_evhandler = NULL;
+	m_bTerminated = false;
 }
 
 WebServer::~WebServer() {
@@ -101,9 +102,11 @@ void WebServer::start() {
 }
 
 void WebServer::stop() {
+	struct timeval tv;
+	tv.tv_sec =2;
+	tv.tv_usec = 0;
 	m_bTerminated = true;
-	event_base_loopexit(m_evbase,NULL);
-
+	event_base_loopexit(m_evbase,&tv);
 }
 
 void WebServer::send_document_cb(struct evhttp_request *req, void *arg) {
@@ -343,10 +346,9 @@ void WebServer::do_wifidog(struct evhttp_request* req) {
 		m_pParent->m_clients.push_back(pClient);
 		EventLog::trace(TRACE_DEBUG, "can't find client ip=%s mac=%s", peer_addr, mac.c_str());
 	} else {
-		EventLog::trace(TRACE_DEBUG, "founded client ip=%s mac=%s.", pClient->m_ip.c_str(), pClient->m_mac.c_str());
+		pClient->setState(STATE_VALIDATION);
 	}
 	if (strstr(decoded_path, "/checkimg.png") == decoded_path) {
-		EventLog::trace(TRACE_DEBUG, "allow client ip=%s mac=%s.", pClient->m_ip.c_str(), pClient->m_mac.c_str());
 		m_pParent->allowClient(pClient);
 		send_html(req,"html/blank.png");
 	} else {
@@ -396,7 +398,7 @@ void WebServer::do_app(struct evhttp_request* req) {
 		pClient->setState(STATE_ALLOWED);
 	}
 	m_pParent->allowClient(pClient);
-	g_syncclient->postApp(m_pParent->m_index,szAppId,pClient->m_mac.c_str());
+	g_syncclient->postApp(m_pParent->m_index,szAppId,pClient->getMac());
 
 	evb = evbuffer_new();
 	evbuffer_add_printf(evb, "ok");

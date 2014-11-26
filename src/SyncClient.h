@@ -34,7 +34,8 @@ public:
 
 	void authClient(int gw_index,const  char* szMac,const char* szIp);
 	void syncDhcp(unsigned char action,const char* szMac,const char* szIp,const char* szHost);
-	void postApp(int gw_index,const char* appid,const char* szMac);
+	void postApp(int gw_index,const char* appid,unsigned char* mac);
+	void postCounter(int gw_index,unsigned char* ip,unsigned char* mac,unsigned long long sendbytes,unsigned long long recvbytes);
 protected:
 	bool connect();
 	bool get_iface_mac(const char *ifname, unsigned char* result);

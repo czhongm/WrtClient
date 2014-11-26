@@ -16,6 +16,9 @@
 #include "WebServer.h"
 #include "Client.h"
 
+#define DEFAULT_INTERVAL_UPDATEIP 					20	//更新ip地址的间隔
+#define DEFAULT_INTERVAL_UPLOADCOUTNER	60   //默认数据上报更新时间
+
 using namespace std;
 
 namespace wrtclient {
@@ -33,14 +36,22 @@ public:
 	void stop();
 
 	void allowClient(Client* pClient);
+	void denyClient(unsigned char* mac);
 	friend class Iptables;
 	friend class WebServer;
 
-	Client* findClientByIp(string ip);
-	Client* findClientByMac(string mac);
-	Client* appendClient(const char* szIp,const char* szMac,int state);
+	Client* findClientByIp(const char* szIp);
+	Client* findClientByIp(unsigned char* ip);
+	Client* findClientByMac(unsigned char* mac);
+	Client* appendClient(unsigned char* ip,unsigned char* mac,int state);
 
+	static void* web_thread(void* param);
+	static void* updateip_thread(void* param);
+	static void* counter_thread(void* param);
 protected:
+	void updateIp();
+	void updateCounter();
+
 	void loadConfig(config_setting_t *config);
 	void testClient(Client* pClient);
 	string get_iface_ip(const char *ifname) ;
@@ -58,6 +69,9 @@ protected:
 	string m_ext_interface;
 	string m_authserver;
 	string m_docroot;
+	int m_interval_updateip;
+	int m_interval_uploadcounter;
+
 	vector<string> m_trustmaclist;
 	vector<string> m_validiplist;
 	vector<string> m_globaliplist;
@@ -66,7 +80,7 @@ protected:
 
 	vector<Client*>	m_clients;
 	pthread_mutex_t	m_mutex_global,m_mutex_valid,m_mutex_trustmac,m_mutex_clients;
-	pthread_t m_webthread;
+	pthread_t m_webthread,m_updateipthread,m_counterthread;
 
 	bool	m_bTerminated;
 

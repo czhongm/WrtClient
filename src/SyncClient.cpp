@@ -199,7 +199,7 @@ void SyncClient::procRecv() {
 	} else {
 		switch (header->type) {
 		case SYNCPACK_TYPE_AUTH_RESP:
-			procAuthResp(buf,n);
+			procAuthResp(buf, n);
 			break;
 		case SYNCPACK_TYPE_DHCP_RESP:
 			break;
@@ -230,8 +230,8 @@ void SyncClient::addPackage(unsigned char* data, int len) {
 	pthread_mutex_unlock(&m_mutex);
 }
 
-void SyncClient::authClient(int gw_index, const char* szMac,const char* szIp) {
-	EventLog::trace(TRACE_DEBUG, "authClient gw_index=%d, mac=%s", gw_index, szMac);
+void SyncClient::authClient(int gw_index, const char* szMac, const char* szIp) {
+	EventLog::trace(TRACE_DEBUG, "authClient gw_index=%d, mac=%s, ip=%s", gw_index, szMac, szIp);
 	unsigned int mac[6];
 	int ip[4];
 	int datalen = sizeof(struct _sync_pack_header) + sizeof(struct _sync_pack_data_auth);
@@ -245,11 +245,12 @@ void SyncClient::authClient(int gw_index, const char* szMac,const char* szIp) {
 	for (int i = 0; i < 6; i++) {
 		authdata->mac[i] = mac[i];
 	}
-	sscanf(szIp,"%d.%d.%d.%d",ip[0],ip[1],ip[2],ip[3]);
+	sscanf(szIp, "%d.%d.%d.%d", &ip[0], &ip[1], &ip[2], &ip[3]);
 	for (int i = 0; i < 4; i++) {
 		authdata->ip[i] = ip[i] & 0xFF;
 	}
 	addPackage(data, datalen);
+	EventLog::trace(TRACE_DEBUG, "authClient gw_index=%d, mac=%s ip=%s end", gw_index, szMac, szIp);
 }
 
 void SyncClient::syncDhcp(unsigned char action, const char* szMac, const char* szIp, const char* szHost) {
@@ -278,8 +279,7 @@ void SyncClient::syncDhcp(unsigned char action, const char* szMac, const char* s
 	addPackage(data, datalen);
 }
 
-void SyncClient::postApp(int gw_index, const char* appid, const char* szMac) {
-	unsigned int mac[6];
+void SyncClient::postApp(int gw_index, const char* appid, unsigned char* mac) {
 	int datalen = sizeof(struct _sync_pack_header) + sizeof(struct _sync_pack_data_app);
 	unsigned char* data = (unsigned char*) malloc(datalen);
 	memset(data, 0, datalen);
@@ -288,31 +288,43 @@ void SyncClient::postApp(int gw_index, const char* appid, const char* szMac) {
 	struct _sync_pack_data_app* appdata = (struct _sync_pack_data_app*) (data + sizeof(struct _sync_pack_header));
 	appdata->gw_index = gw_index;
 	strncpy((char*) appdata->appid, appid, sizeof(appdata->appid));
-	sscanf(szMac, "%02x:%02x:%02x:%02x:%02x:%02x", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
-	for (int i = 0; i < 6; i++) {
-		appdata->mac[i] = mac[i];
-	}
+	memcpy(appdata->mac,mac,sizeof(appdata->mac));
 	addPackage(data, datalen);
 }
 
-void SyncClient::procAuthResp(unsigned char* data,int len) {
-	char szIp[32],szMac[32];
+void SyncClient::procAuthResp(unsigned char* data, int len) {
 	struct _sync_pack_data_auth_resp* resp = (struct _sync_pack_data_auth_resp*) (data + sizeof(struct _sync_pack_header));
-	sprintf(szIp,"%d.%d.%d.%d",resp->ip[0],resp->ip[1],resp->ip[2],resp->ip[3]);
-	sprintf(szMac,"%02x:%02x:%02x:%02x:%02x:%02x",resp->mac[0],resp->mac[1],resp->mac[2],resp->mac[3],resp->mac[4],resp->mac[5]);
-	EventLog::trace(TRACE_DEBUG, "procAuthResp result=%d",resp->result);
+	EventLog::trace(TRACE_DEBUG, "procAuthResp Client Ip=%d.%d.%d.%d, mac=%02x:%02x:%02x:%02x:%02x:%02x,state=%d", resp->ip[0], resp->ip[1], resp->ip[2],
+			resp->ip[3], resp->mac[0], resp->mac[1], resp->mac[2], resp->mac[3], resp->mac[4], resp->mac[5], resp->result);
 	if (resp->gw_index < g_lstWifidog.size()) {
 		Wifidog* pWifidog = g_lstWifidog[resp->gw_index];
-		Client* pClient = pWifidog->findClientByMac(szMac);
-		if (pClient) {
-			EventLog::trace(TRACE_DEBUG, "procAuthResp Client Ip=%s, mac=%s", pClient->m_ip.c_str(), pClient->m_mac.c_str());
-			pClient->setState(resp->result);
-			pWifidog->allowClient(pClient);
+		if(resp->result == STATE_DENY){
+			pWifidog->denyClient(resp->mac);
 		}else{
-			pClient = pWifidog->appendClient(szIp,szMac,resp->result);
-			pWifidog->allowClient(pClient);
+			Client* pClient = pWifidog->findClientByMac(resp->mac);
+			if (pClient) {
+				pClient->setState(resp->result);
+				pWifidog->allowClient(pClient);
+			} else {
+				pClient = pWifidog->appendClient(resp->ip,resp->mac, resp->result);
+				pWifidog->allowClient(pClient);
+			}
 		}
 	}
+}
+
+void SyncClient::postCounter(int gw_index,unsigned char* ip,unsigned char* mac,unsigned long long sendbytes,unsigned long long recvbytes){
+	int datalen = sizeof(struct _sync_pack_header) + sizeof(struct _sync_pack_data_counter);
+	unsigned char* data = (unsigned char*) malloc(datalen);
+	memset(data, 0, datalen);
+	struct _sync_pack_header* header = (struct _sync_pack_header*) data;
+	constructHeader(header, SYNCPACK_TYPE_COUNTER, sizeof(struct _sync_pack_data_counter));
+	struct _sync_pack_data_counter* counterdata = (struct _sync_pack_data_counter*) (data + sizeof(struct _sync_pack_header));
+	memcpy(counterdata->ip,ip,sizeof(counterdata->ip));
+	memcpy(counterdata->mac,mac,sizeof(counterdata->mac));
+	counterdata->recvbytes = recvbytes;
+	counterdata->sendbytes = sendbytes;
+	addPackage(data, datalen);
 }
 
 } /* namespace wrtclient */

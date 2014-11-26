@@ -338,27 +338,34 @@ int Iptables::access(fw_access_t type, const char *ip, const char *mac, int tag)
 }
 
 void Iptables::allowClient(Client* pClient) {
+	char szIp[32],szMac[32];
 	int state = pClient->getState();
 	int oldstate = pClient->getOldState();
+	pClient->getIp(szIp);
+	pClient->getMac(szMac);
 	if (state != oldstate) {
 		if (STATE_VALIDATION == oldstate) {
-			access(FW_ACCESS_DENY, pClient->m_ip.c_str(), pClient->m_mac.c_str(), FW_MARK_PROBATION);
-		} else if(STATE_ALLOWED == oldstate){
-			access(FW_ACCESS_DENY, pClient->m_ip.c_str(), pClient->m_mac.c_str(), FW_MARK_KNOWN);
+			access(FW_ACCESS_DENY, szIp, szMac, FW_MARK_PROBATION);
+		} else if (STATE_ALLOWED == oldstate) {
+			access(FW_ACCESS_DENY, szIp, szMac, FW_MARK_KNOWN);
 		}
 		if (STATE_VALIDATION == state) {
-			access(FW_ACCESS_ALLOW, pClient->m_ip.c_str(), pClient->m_mac.c_str(), FW_MARK_PROBATION);
-		} else if(STATE_ALLOWED == state){
-			access(FW_ACCESS_ALLOW, pClient->m_ip.c_str(), pClient->m_mac.c_str(), FW_MARK_KNOWN);
+			access(FW_ACCESS_ALLOW, szIp, szMac, FW_MARK_PROBATION);
+		} else if (STATE_ALLOWED == state) {
+			access(FW_ACCESS_ALLOW, szIp, szMac, FW_MARK_KNOWN);
 		}
 	}
 }
+
 void Iptables::denyClient(Client* pClient) {
+	char szIp[32],szMac[32];
 	int state = pClient->getState();
+	pClient->getIp(szIp);
+	pClient->getMac(szMac);
 	if (STATE_VALIDATION == state) {
-		access(FW_ACCESS_DENY, pClient->m_ip.c_str(), pClient->m_mac.c_str(), FW_MARK_PROBATION);
+		access(FW_ACCESS_DENY, szIp, szMac, FW_MARK_PROBATION);
 	} else {
-		access(FW_ACCESS_DENY, pClient->m_ip.c_str(), pClient->m_mac.c_str(), FW_MARK_KNOWN);
+		access(FW_ACCESS_DENY, szIp, szMac, FW_MARK_KNOWN);
 	}
 }
 
@@ -396,11 +403,7 @@ int Iptables::couters_update() {
 			EventLog::trace(TRACE_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", ip, counter);
 			pthread_mutex_lock(&m_mutex);
 			if ((p1 = m_pParent->findClientByIp(ip))) {
-				if (p1->m_send < counter) {
-					p1->m_send = counter;
-					p1->m_lastupdate = time(NULL);
-					EventLog::trace(TRACE_DEBUG, "%s - Updated counter.outgoing to %llu bytes.  Updated last_updated to %d", ip, counter, p1->m_lastupdate);
-				}
+				p1->setSend(counter);
 			} else {
 				EventLog::trace(TRACE_ERROR,
 						"iptables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed", ip);
@@ -440,10 +443,7 @@ int Iptables::couters_update() {
 			EventLog::trace(TRACE_DEBUG, "Read incoming traffic for %s: Bytes=%llu", ip, counter);
 			pthread_mutex_lock(&m_mutex);
 			if ((p1 = m_pParent->findClientByIp(ip))) {
-				if ((p1->m_recv) < counter) {
-					p1->m_recv = counter;
-					EventLog::trace(TRACE_DEBUG, "%s - Updated counter.incoming to %llu bytes", ip, counter);
-				}
+				p1->setRecv(counter);
 			} else {
 				EventLog::trace(TRACE_ERROR,
 						"iptables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed", ip);
@@ -490,6 +490,7 @@ void Iptables::update_validip() {
 	}
 	pthread_mutex_unlock(&(m_pParent->m_mutex_valid));
 }
+
 void Iptables::addto_validip(vector<string>& iplist) {
 	vector<string>::iterator p = iplist.begin();
 	for (; p != iplist.end(); ++p) {

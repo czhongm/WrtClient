@@ -18,7 +18,7 @@
 #define SYNCPACK_TYPE_DHCP_RESP		0x82
 #define SYNCPACK_TYPE_APP	0x03
 #define SYNCPACK_TYPE_APP_RESP		0x83
-//#define SYNCPACK_TYPE_
+#define SYNCPACK_TYPE_COUNTER	0x04
 
 #define MAX_QUEUE_LEN	256
 
@@ -58,6 +58,11 @@ struct _sync_pack_data_dhcp{
 	unsigned char hostname[32];//主机名称
 };
 
-
+struct _sync_pack_data_counter{
+	unsigned char mac[6]; //MAC地址
+	unsigned char ip[4]; //IP地址
+	unsigned long long sendbytes; //发送字节
+	unsigned long long recvbytes;//接收字节
+};
 
 #endif /* SYNCPACKDEF_H_ */
