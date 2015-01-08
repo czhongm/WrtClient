@@ -1,0 +1,49 @@
+#!/bin/sh
+#
+# Could be better, but it's working as expected
+#
+# 
+#
+# chkconfig: 345 65 35
+#
+# description: Startup/shutdown script for TGrass captive portal
+# processname: WrtClient
+
+# Date    : 2014-12-04
+# Version : 1.0
+
+IPT=/usr/sbin/iptables
+WD_DIR=/usr/bin
+OPTIONS=""
+
+case "$1" in
+  start)
+    echo "Starting WrtClient ... "
+	if $WD_DIR/WrtClient $OPTIONS
+	then
+		echo "OK"
+	else
+		echo "FAILED:  WrtClient exited with non 0 status"
+	fi
+    ;;
+  restart)
+    $0 stop
+    sleep 2
+    $0 start
+    ;;
+  reload)
+    $0 stop
+    sleep 2
+    $0 start
+    ;;
+  stop)
+    echo "Stopping WrtClient ... "
+    killall WrtClient
+    ;;
+  *)
+   echo "Usage: $0 {start|stop|restart|reload}"
+   exit 1
+   ;;
+esac
+
+

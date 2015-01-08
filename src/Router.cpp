@@ -9,13 +9,13 @@
 
 namespace wrtclient {
 
-Router::Router() {
-	// TODO Auto-generated constructor stub
+//TODO: 使用libubus中提供的方法来进行路由器设置
+//TODO:注册ubus
 
+Router::Router() {
 }
 
 Router::~Router() {
-	// TODO Auto-generated destructor stub
 }
 
 } /* namespace wrtclient */
